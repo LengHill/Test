@@ -15,10 +15,11 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- CDN для Firebase SDKs (v9.x COMPATIBLE - працюють з глобальним об'єктом) -->
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <!-- CDN для Firebase SDKs (v9.x MODULAR - працюють з глобальним об'єктом) -->
+    <!-- Змінено з -compat.js на стандартні модульні v9 скрипти -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
 
     <style>
         /* Стилі для основного шрифту */
@@ -37,10 +38,14 @@
         // Деструктуризація для зручності (доступно завдяки CDN)
         const { useState, useEffect, useMemo, useCallback } = React;
         
-        // Отримання функцій через глобальний об'єкт 'firebase'
-        const { initializeApp } = firebase;
-        const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = firebase.auth;
-        const { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel, serverTimestamp } = firebase.firestore;
+        // Отримання функцій через глобальний об'єкт 'firebase'. 
+        // Всі модульні функції (getFirestore, doc, collection, getAuth, etc.) 
+        // в v9 CDN зазвичай доступні через деструктуризацію глобального об'єкта 'firebase'.
+        const { 
+            initializeApp, 
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel, serverTimestamp 
+        } = firebase;
         
         // --- ДОПОМІЖНІ ФУНКЦІЇ ТА КОНСТАНТИ ---
         
@@ -143,6 +148,7 @@
               }
 
               const app = initializeApp(firebaseConfig);
+              // ВИПРАВЛЕНО: getFirestore тепер доступний.
               const firestore = getFirestore(app);
               const userAuth = getAuth(app);
 
@@ -501,8 +507,9 @@
           );
         };
         
-        // Рендеринг React-додатку
-        ReactDOM.render(<App />, document.getElementById('root'));
+        // Рендеринг React-додатку (Оновлено для React 18)
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
 
         // --- ЛОГІКА РЕЄСТРАЦІЇ СЕРВІС-ВОРКЕРА ---
         if ('serviceWorker' in navigator) {
