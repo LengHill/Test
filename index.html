@@ -165,7 +165,7 @@
           const [transactions, setTransactions] = useState([]);
           const [error, setError] = useState(null);
           const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
-          const [showAllTransactions, setShowAllTransactions] = useState(false); // НОВИЙ СТАН для повної історії
+          const [showAllTransactions, setShowAllTransactions] = useState(false); // СТАН для повної історії
           const [newTransaction, setNewTransaction] = useState({
             description: '',
             amount: '',
@@ -470,24 +470,16 @@
               />
 
               <div className="max-w-xl mx-auto">
-                <header className="text-center mb-6">
+                
+                {/* --- HEADER З КНОПКОЮ ПАРАМЕТРІВ У ПРАВОМУ КУТІ --- */}
+                <header className="text-center mb-6 relative">
                   <h1 className="text-3xl font-bold text-gray-800 mb-1">Мій Локальний Фінансовий Трекер</h1>
                   <p className="text-sm text-indigo-600 font-medium">Дані зберігаються тільки на вашому пристрої.</p>
-                </header>
 
-                {error && (
-                  <div className="p-4 mb-4 text-sm rounded-lg border bg-red-100 text-red-800 border-red-300" role="alert">
-                    <p className="font-semibold mb-1">Повідомлення:</p>
-                    <p className="font-mono text-xs break-all whitespace-pre-wrap">{error}</p>
-                  </div>
-                )}
-                
-                {/* --- Панель Параметрів (Рефакторинг: тільки іконка) --- */}
-                <div className="flex justify-end items-center mb-6 p-2 bg-white border border-gray-200 rounded-xl shadow-md">
-                    {/* Кнопка Параметри (Gear Icon) */}
+                    {/* Кнопка Параметри (Gear Icon) - Переміщено у верхній правий кут */}
                     <button
                         onClick={() => setIsSettingsOpen(true)}
-                        className="p-2 rounded-full text-indigo-600 hover:bg-gray-100 transition duration-150"
+                        className="absolute top-0 right-0 p-2 rounded-full text-indigo-600 hover:bg-gray-200 transition duration-150"
                         aria-label="Параметри"
                     >
                         {/* Gear icon */}
@@ -496,7 +488,14 @@
                             <circle cx="12" cy="12" r="3"/>
                         </svg>
                     </button>
-                </div>
+                </header>
+
+                {error && (
+                  <div className="p-4 mb-4 text-sm rounded-lg border bg-red-100 text-red-800 border-red-300" role="alert">
+                    <p className="font-semibold mb-1">Повідомлення:</p>
+                    <p className="font-mono text-xs break-all whitespace-pre-wrap">{error}</p>
+                  </div>
+                )}
 
                 {/* --- Модальне вікно Параметрів --- */}
                 {isSettingsOpen && (
