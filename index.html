@@ -52,6 +52,63 @@
             }).format(value);
         };
 
+        // Компонент для відображення кругової діаграми
+        const PieChart = ({ income, expense }) => {
+            const total = income + expense;
+            if (total === 0) return (
+              <div className="text-gray-400 flex flex-col items-center justify-center py-4">
+                <p className="text-4xl mb-1">📊</p>
+                <p className="text-xs font-medium">Немає Доходів/Витрат</p>
+              </div>
+            );
+
+            // Розраховуємо відсоток витрат (expense) від загальної суми
+            const expensePercent = (expense / total) * 100;
+            
+            // Значення для stroke-dasharray
+            // Перше число: довжина дуги (відсоток витрат)
+            // Друге число: довжина залишку (відсоток доходу)
+            const dashArrayValue = `${expensePercent} ${100 - expensePercent}`;
+            const incomeDashArrayValue = `${100 - expensePercent} ${expensePercent}`;
+
+            return (
+                <div className="w-full flex justify-center items-center">
+                    <svg viewBox="0 0 36 36" className="w-24 h-24 sm:w-32 sm:h-32 transform -rotate-90">
+                        {/* Background circle */}
+                        <circle
+                            cx="18" cy="18" r="15.91549430918954"
+                            fill="transparent"
+                            stroke="#e5e7eb" /* gray-200 */
+                            strokeWidth="3.8"
+                        />
+
+                        {/* Expense segment (Red) */}
+                        <circle
+                            cx="18" cy="18" r="15.91549430918954"
+                            fill="transparent"
+                            stroke="#ef4444" /* red-500 */
+                            strokeWidth="3.8"
+                            strokeDasharray={dashArrayValue}
+                            strokeDashoffset="0"
+                            style={{ transition: 'stroke-dasharray 0.5s ease 0s' }}
+                        />
+
+                        {/* Income segment (Green) - starts where Expense ends */}
+                        <circle
+                            cx="18" cy="18" r="15.91549430918954"
+                            fill="transparent"
+                            stroke="#10b981" /* green-500 */
+                            strokeWidth="3.8"
+                            strokeDasharray={incomeDashArrayValue}
+                            strokeDashoffset={-expensePercent} /* Start after expense */
+                            style={{ transition: 'stroke-dasharray 0.5s ease 0s' }}
+                        />
+                    </svg>
+                </div>
+            );
+        };
+
+
         // Компонент для відображення місячного графіка
         const MonthlyChart = ({ summary, formatCurrency }) => {
           if (summary.length === 0) return null;
@@ -107,7 +164,8 @@
           // --- Стан Додатку ---
           const [transactions, setTransactions] = useState([]);
           const [error, setError] = useState(null);
-          const [isSettingsOpen, setIsSettingsOpen] = useState(false); // НОВИЙ СТАН: для модального вікна параметрів
+          const [isSettingsOpen, setIsSettingsOpen] = useState(false); 
+          const [showAllTransactions, setShowAllTransactions] = useState(false); // НОВИЙ СТАН для повної історії
           const [newTransaction, setNewTransaction] = useState({
             description: '',
             amount: '',
@@ -392,6 +450,12 @@
             fileInputRef.current && fileInputRef.current.click();
           };
 
+          // Логіка відображення транзакцій
+          const transactionsToDisplay = showAllTransactions 
+            ? transactions 
+            : transactions.slice(0, 10); // Показуємо лише 10 останніх за замовчуванням
+          const shouldShowToggleButton = transactions.length > 10;
+
 
           return (
             <div className="min-h-screen bg-gray-100 p-4 sm:p-6 font-sans">
@@ -418,19 +482,12 @@
                   </div>
                 )}
                 
-                {/* --- Панель Статусу та Параметрів (Рефакторинг) --- */}
-                <div className="flex justify-between items-center mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl shadow-md">
-                    <div className="flex items-center text-sm text-yellow-800 font-medium">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Локально збережено ({transactions.length})
-                    </div>
-                    
+                {/* --- Панель Параметрів (Рефакторинг: тільки іконка) --- */}
+                <div className="flex justify-end items-center mb-6 p-2 bg-white border border-gray-200 rounded-xl shadow-md">
                     {/* Кнопка Параметри (Gear Icon) */}
                     <button
                         onClick={() => setIsSettingsOpen(true)}
-                        className="p-2 rounded-full text-indigo-600 hover:bg-yellow-100 transition duration-150"
+                        className="p-2 rounded-full text-indigo-600 hover:bg-gray-100 transition duration-150"
                         aria-label="Параметри"
                     >
                         {/* Gear icon */}
@@ -479,19 +536,31 @@
                 )}
 
 
-                {/* Картка загального балансу */}
+                {/* Картка загального балансу + Діаграма */}
                 <div className="bg-white shadow-xl rounded-2xl p-6 mb-8 border-t-4 border-indigo-500">
-                  <h2 className="text-lg font-semibold text-gray-700 mb-2">Загальний Баланс за Весь Час</h2>
-                  <p className={`text-4xl font-extrabold ${totalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatCurrency(totalBalance)}
-                  </p>
-                  <div className="mt-4 flex justify-between text-sm font-medium">
-                    <div className="text-green-500">
-                      Загальний Дохід: {formatCurrency(totalIncome)}
-                    </div>
-                    <div className="text-red-500">
-                      Загальні Витрати: {formatCurrency(totalExpense)}
-                    </div>
+                  <h2 className="text-lg font-semibold text-gray-700 mb-4">Загальний Баланс за Весь Час</h2>
+                  <div className="flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0 sm:space-x-6">
+                      {/* 1. Баланс */}
+                      <div className="flex-1 min-w-0 w-full">
+                          <p className={`text-4xl font-extrabold ${totalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {formatCurrency(totalBalance)}
+                          </p>
+                          <div className="mt-4 text-sm font-medium">
+                              <div className="flex justify-between text-green-500 mb-1">
+                                  <span>Загальний Дохід:</span> 
+                                  <span className="font-semibold">{formatCurrency(totalIncome)}</span>
+                              </div>
+                              <div className="flex justify-between text-red-500">
+                                  <span>Загальні Витрати:</span>
+                                  <span className="font-semibold">{formatCurrency(totalExpense)}</span>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* 2. Кругова діаграма */}
+                      <div className="flex-shrink-0 w-32 h-32 flex items-center justify-center">
+                          <PieChart income={totalIncome} expense={totalExpense} />
+                      </div>
                   </div>
                 </div>
 
@@ -577,13 +646,18 @@
 
                 {/* Список транзакцій */}
                 <div className="bg-white shadow-lg rounded-2xl p-6">
-                  <h2 className="text-xl font-bold text-gray-800 mb-4">Історія Транзакцій ({transactions.length})</h2>
+                  <h2 className="text-xl font-bold text-gray-800 mb-4">
+                    Історія Транзакцій ({transactions.length})
+                    {shouldShowToggleButton && !showAllTransactions && (
+                      <span className="text-sm text-gray-500 ml-2 font-normal"> (Показано {transactionsToDisplay.length} останніх)</span>
+                    )}
+                  </h2>
 
                   {transactions.length === 0 ? (
                     <p className="text-gray-500 text-center py-4">Поки що транзакцій немає. Додайте першу!</p>
                   ) : (
                     <ul className="space-y-3">
-                      {transactions.map(t => (
+                      {transactionsToDisplay.map(t => (
                         <li
                           key={t.id}
                           className={`flex justify-between items-center p-4 rounded-xl shadow-sm transition duration-150 ease-in-out border-l-4 ${
@@ -620,6 +694,19 @@
                         </li>
                       ))}
                     </ul>
+                  )}
+
+                  {/* Кнопка перемикання повної історії */}
+                  {shouldShowToggleButton && (
+                      <button
+                          onClick={() => setShowAllTransactions(prev => !prev)}
+                          className="mt-6 w-full py-2 px-4 border border-transparent rounded-lg text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition duration-150 shadow-md"
+                      >
+                          {showAllTransactions 
+                              ? 'Сховати Повну Історію' 
+                              : `Показати Всі ${transactions.length} Транзакцій`
+                          }
+                      </button>
                   )}
                 </div>
               </div>
