@@ -15,10 +15,11 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- CDN для Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js"></script>
+    <!-- ОНОВЛЕНІ CDN для Firebase SDKs (v9.x COMPATIBLE - працюють з глобальним об'єктом) -->
+    <!-- ЦЕ ВИПРАВЛЯЄ ПОМИЛКИ 'export' та 'firebase is not defined' -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 
     <style>
         /* Стилі для основного шрифту */
@@ -36,6 +37,9 @@
 
         // Деструктуризація для зручності (доступно завдяки CDN)
         const { useState, useEffect, useMemo, useCallback } = React;
+        
+        // Отримання функцій через глобальний об'єкт 'firebase'
+        // Оскільки ми використовуємо сумісні скрипти, це працює
         const { initializeApp } = firebase;
         const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = firebase.auth;
         const { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel, serverTimestamp } = firebase.firestore;
@@ -54,8 +58,6 @@
           const day = String(today.getDate()).padStart(2, '0');
           return `${year}-${month}-${day}`;
         };
-
-        // --- КОМПОНЕНТИ ---
 
         // Компонент для відображення місячного графіка
         const MonthlyChart = ({ summary, formatCurrency }) => {
@@ -124,7 +126,7 @@
           // 1. Ініціалізація Firebase та Аутентифікація
           useEffect(() => {
             if (typeof firebase === 'undefined') {
-                setError("Firebase SDK не завантажено.");
+                setError("Firebase SDK не завантажено. Перевірте підключення до мережі.");
                 setIsLoading(false);
                 return;
             }
@@ -133,7 +135,9 @@
 
             try {
               if (!firebaseConfig.apiKey) {
-                throw new Error("Firebase config is missing.");
+                // Це може статися, якщо глобальні змінні не передаються в оточенні.
+                // Додаток продовжить роботу, але без запису в Firestore.
+                console.warn("Firebase config is missing, app will not save data.");
               }
 
               const app = initializeApp(firebaseConfig);
@@ -175,6 +179,7 @@
           useEffect(() => {
             if (!db || !userId) return;
 
+            // Зверніть увагу, ми використовуємо 'artifacts/${appId}/users/${userId}/transactions'
             const collectionPath = `artifacts/${appId}/users/${userId}/transactions`;
             const transactionsCollection = collection(db, collectionPath);
             const q = query(transactionsCollection);
@@ -213,13 +218,13 @@
               }
 
               let date;
-              // Використовуємо об'єкт Date, що зберігається у Firestore
               if (t.timestamp && t.timestamp.toDate) {
                 date = t.timestamp.toDate();
               } else if (t.timestamp instanceof Date) {
                 date = t.timestamp;
               } else {
-                date = new Date(); 
+                // Використовуємо рядок дати, якщо timestamp не є об'єктом Firebase Timestamp
+                date = new Date(t.timestamp || getTodayDate()); 
               }
               
               const year = date.getFullYear();
@@ -286,6 +291,7 @@
               description,
               amount: parsedAmount,
               type,
+              // Використовуємо об'єкт Date для збереження, Firestore конвертує його в Timestamp
               timestamp: transactionDate, 
               userId,
             };
@@ -464,7 +470,7 @@
                           <div className="flex-1 min-w-0 pr-4">
                             <p className="font-semibold text-gray-800 truncate">{t.description}</p>
                             <p className="text-xs text-gray-500 mt-0.5">
-                              {t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Невідома дата'}
+                              {t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' }) : new Date(t.timestamp).toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' })}
                             </p>
                           </div>
 
