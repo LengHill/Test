@@ -15,8 +15,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- ОНОВЛЕНІ CDN для Firebase SDKs (v9.x COMPATIBLE - працюють з глобальним об'єктом) -->
-    <!-- ЦЕ ВИПРАВЛЯЄ ПОМИЛКИ 'export' та 'firebase is not defined' -->
+    <!-- CDN для Firebase SDKs (v9.x COMPATIBLE - працюють з глобальним об'єктом) -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
@@ -39,7 +38,6 @@
         const { useState, useEffect, useMemo, useCallback } = React;
         
         // Отримання функцій через глобальний об'єкт 'firebase'
-        // Оскільки ми використовуємо сумісні скрипти, це працює
         const { initializeApp } = firebase;
         const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = firebase.auth;
         const { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel, serverTimestamp } = firebase.firestore;
@@ -59,7 +57,7 @@
           return `${year}-${month}-${day}`;
         };
 
-        // Компонент для відображення місячного графіка
+        // Компонент для відображення місячного графіка (опущено для стислості)
         const MonthlyChart = ({ summary, formatCurrency }) => {
           if (summary.length === 0) return null;
 
@@ -131,12 +129,16 @@
                 return;
             }
             
+            // --- ЛОГІКА ДЕБАГУ ---
+            console.log("Firebase Config:", firebaseConfig); 
+            console.log("App ID:", appId);
+            // ---------------------
+            
             setLogLevel('error');
 
             try {
               if (!firebaseConfig.apiKey) {
                 // Це може статися, якщо глобальні змінні не передаються в оточенні.
-                // Додаток продовжить роботу, але без запису в Firestore.
                 console.warn("Firebase config is missing, app will not save data.");
               }
 
@@ -169,13 +171,14 @@
 
               return () => unsubscribe();
             } catch (e) {
-              console.error("Initialization Error:", e);
-              setError("Помилка ініціалізації додатку.");
+              // Змінено повідомлення для зручності дебагу
+              console.error("Initialization Error (Detailed):", e);
+              setError("Помилка ініціалізації додатку. Будь ласка, перевірте КОНСОЛЬ браузера (F12) для деталей!");
               setIsLoading(false);
             }
           }, []);
 
-          // 2. Отримання даних з Firestore
+          // 2. Отримання даних з Firestore (не змінено)
           useEffect(() => {
             if (!db || !userId) return;
 
@@ -199,7 +202,7 @@
             return () => unsubscribe();
           }, [db, userId]);
 
-          // Розрахунок загального балансу та місячних підсумків
+          // Розрахунок загального балансу та місячних підсумків (не змінено)
           const { totalBalance, monthlySummary, totalIncome, totalExpense } = useMemo(() => {
             let balance = 0;
             let income = 0;
@@ -259,13 +262,13 @@
             };
           }, [transactions]);
 
-          // Обробник змін форми
+          // Обробник змін форми, handleSubmit, handleDelete, formatCurrency (не змінено)
+
           const handleInputChange = (e) => {
             const { name, value } = e.target;
             setNewTransaction(prev => ({ ...prev, [name]: value }));
           };
 
-          // Обробник додавання транзакції
           const handleSubmit = useCallback(async (e) => {
             e.preventDefault();
             if (!db || !userId) {
@@ -308,7 +311,6 @@
             }
           }, [newTransaction, db, userId]);
 
-          // Обробник видалення транзакції
           const handleDelete = useCallback(async (id) => {
             if (!db || !userId) return;
 
@@ -322,7 +324,6 @@
             }
           }, [db, userId]);
 
-          // Форматування суми
           const formatCurrency = (value) => {
             return new Intl.NumberFormat('pl-PL', {
               style: 'currency',
@@ -355,7 +356,7 @@
                   </div>
                 )}
 
-                {/* Картка загального балансу */}
+                {/* Картка загального балансу (не змінено) */}
                 <div className="bg-white shadow-xl rounded-2xl p-6 mb-8 border-t-4 border-indigo-500">
                   <h2 className="text-lg font-semibold text-gray-700 mb-2">Загальний Баланс за Весь Час</h2>
                   <p className={`text-4xl font-extrabold ${totalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -371,10 +372,10 @@
                   </div>
                 </div>
 
-                {/* Графік по місяцях */}
+                {/* Графік по місяцях (не змінено) */}
                 <MonthlyChart summary={monthlySummary} formatCurrency={formatCurrency} />
 
-                {/* Форма додавання транзакції */}
+                {/* Форма додавання транзакції (не змінено) */}
                 <div className="bg-white shadow-lg rounded-2xl p-6 mb-8">
                   <h2 className="text-xl font-bold text-gray-800 mb-4">Додати Нову Транзакцію</h2>
                   <form onSubmit={handleSubmit} className="space-y-4">
@@ -451,7 +452,7 @@
                     )}
                 </div>
 
-                {/* Список транзакцій */}
+                {/* Список транзакцій (не змінено) */}
                 <div className="bg-white shadow-lg rounded-2xl p-6">
                   <h2 className="text-xl font-bold text-gray-800 mb-4">Історія Транзакцій ({transactions.length})</h2>
 
