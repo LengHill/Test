@@ -16,6 +16,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- Firebase SDKs (v8.x NAMESPACED API) -->
+    <!-- Використовуємо v8, оскільки вона більш стабільна у CDN середовищі -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -40,9 +41,9 @@
             const RootErrorApp = ({ message }) => (
                 <div className="flex items-center justify-center min-h-screen bg-gray-50 p-4">
                     <div className="text-center p-6 bg-white shadow-xl rounded-xl">
-                        <h1 className="text-3xl font-bold text-red-600 mb-4">Помилка Завантаження</h1>
-                        <p className="text-gray-700">{message}</p>
-                        <p className="text-sm text-gray-500 mt-2">Спробуйте оновити сторінку.</p>
+                        <h1 className="text-3xl font-bold text-red-600 mb-4">Помилка Завантаження (Фатальна)</h1>
+                        <p className="text-gray-700 font-mono text-sm break-all">{message}</p>
+                        <p className="text-sm text-gray-500 mt-4">Спробуйте оновити сторінку або перевірити підключення до мережі.</p>
                     </div>
                 </div>
             );
@@ -60,11 +61,11 @@
                     const intervalTime = 100;
 
                     const checkFirebase = () => {
-                        if (typeof firebase !== 'undefined' && typeof firebase.initializeApp !== 'undefined') {
+                        if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function' && typeof firebase.auth === 'function') {
                             console.log("Firebase SDK successfully detected.");
                             resolve();
                         } else if (attempts >= maxAttempts) {
-                            reject(new Error("Timeout: Firebase SDK не завантажено після 5 секунд."));
+                            reject(new Error("Firebase SDK не завантажено. Об'єкти 'firebase' або 'firebase.auth' не знайдено."));
                         } else {
                             attempts++;
                             setTimeout(checkFirebase, intervalTime);
@@ -78,7 +79,14 @@
             const renderAppLogic = () => {
                 // Отримання глобальних змінних середовища
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+                let firebaseConfig = {};
+                try {
+                    // Парсимо конфігурацію. Може викликати помилку, якщо рядок некоректний.
+                    firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config.trim() !== '' ? JSON.parse(__firebase_config) : {};
+                } catch (e) {
+                    console.error("Помилка парсингу __firebase_config:", e);
+                    // Якщо парсинг невдалий, ініціалізація Firebase майже точно не вдасться
+                }
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
                 // --- ДОПОМІЖНІ ФУНКЦІЇ ТА КОНСТАНТИ ---
@@ -173,10 +181,11 @@
                   useEffect(() => {
                     try {
                       if (!firebaseConfig.apiKey) {
-                        console.warn("Firebase config is missing, app will not save data.");
+                        console.warn("Firebase config is missing API key. Data saving might fail.");
                       }
 
                       // Ініціалізація програми
+                      // Це місце, де може виникнути помилка, якщо конфігурація некоректна
                       const app = firebase.initializeApp(firebaseConfig); 
                       // Отримання служб
                       const firestore = app.firestore();
@@ -199,7 +208,7 @@
                               }
                             } catch (e) {
                               console.error("Error during Firebase sign-in:", e);
-                              setError("Не вдалося увійти до Firebase.");
+                              setError(`Помилка автентифікації: ${e.message}`);
                               setIsLoading(false);
                             }
                           };
@@ -210,7 +219,8 @@
                       return () => unsubscribe();
                     } catch (e) {
                       console.error("Initialization Error (Detailed):", e);
-                      setError("Помилка ініціалізації додатку. Будь ласка, перевірте КОНСОЛЬ браузера (F12) для деталей!");
+                      // *** Оновлене повідомлення про помилку ***
+                      setError(`Помилка ініціалізації: ${e.message}. Це може бути пов'язано з відсутністю ключів у конфігурації Firebase.`);
                       setIsLoading(false);
                     }
                   }, []);
@@ -224,22 +234,22 @@
                     
                     // onSnapshot забезпечує оновлення в реальному часі
                     const unsubscribe = db.collection(collectionPath)
+                      // Сортування в пам'яті буде виконано після отримання даних, оскільки orderBy() в Canvas може викликати помилку індексації.
                       .onSnapshot((snapshot) => {
                         const fetchedTransactions = snapshot.docs.map(doc => ({
                           id: doc.id,
                           ...doc.data()
-                          // Timestamp is automatically handled by v8 SDK
                         })).sort((a, b) => {
                             // Сортування за часовою міткою, від найновішої до найстарішої
-                            const timeA = b.timestamp?.seconds || 0;
-                            const timeB = a.timestamp?.seconds || 0;
-                            return timeA - timeB;
+                            const timeA = (b.timestamp?.seconds || b.timestamp?.getTime() / 1000 || 0);
+                            const timeB = (a.timestamp?.seconds || a.timestamp?.getTime() / 1000 || 0);
+                            return timeA - timeB; // Сортування від новіших до старіших
                         });
 
                         setTransactions(fetchedTransactions);
                       }, (e) => {
                         console.error("Error fetching transactions:", e);
-                        setError("Помилка при отриманні транзакцій.");
+                        setError(`Помилка при отриманні транзакцій: ${e.message}`);
                       });
 
                     return () => unsubscribe();
@@ -264,7 +274,7 @@
                       }
 
                       let date;
-                      // v8 Namespaced API використовує t.timestamp.toDate() для Timestamp
+                      // Обробка об'єкта Timestamp v8 (t.timestamp.toDate()) або стандартного об'єкта Date
                       if (t.timestamp && typeof t.timestamp.toDate === 'function') {
                         date = t.timestamp.toDate();
                       } else if (t.timestamp instanceof Date) {
@@ -352,7 +362,7 @@
                       setError(null);
                     } catch (e) {
                       console.error("Error adding document: ", e);
-                      setError("Помилка при збереженні транзакції.");
+                      setError(`Помилка при збереженні транзакції: ${e.message}`);
                     }
                   }, [newTransaction, db, userId]);
 
@@ -366,7 +376,7 @@
                       setError(null);
                     } catch (e) {
                       console.error("Error deleting document: ", e);
-                      setError("Помилка при видаленні транзакції.");
+                      setError(`Помилка при видаленні транзакції: ${e.message}`);
                     }
                   }, [db, userId]);
 
@@ -412,7 +422,9 @@
 
                         {error && (
                           <div className="p-3 mb-4 text-sm text-red-800 bg-red-100 rounded-lg" role="alert">
-                            {error}
+                            {/* Відображаємо деталі помилки, щоб користувач міг її виправити */}
+                            <p className="font-semibold mb-1">Помилка:</p>
+                            <p className="font-mono text-xs break-all">{error}</p>
                           </div>
                         )}
 
