@@ -15,10 +15,11 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
-    <!-- CDN для Firebase SDKs (v9.x MODULAR - працюють з глобальним об'єктом) -->
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
+    <!-- ОНОВЛЕННЯ: CDN для Firebase SDKs (v8.x NAMESPACED API) 
+         Це виправляє "Firebase is not loaded correctly" шляхом створення глобального об'єкта 'firebase' -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
     <style>
         /* Стилі для основного шрифту */
@@ -31,11 +32,11 @@
     <script type="text/babel">
         /**
          * Головна функція, яка запускає React-додаток.
-         * Вона викликається лише після повного завантаження сторінки (window.onload),
-         * що гарантує доступність глобального об'єкта `firebase`.
+         * Вона викликається лише після повного завантаження сторінки (window.onload).
          */
         const renderApp = () => {
-            if (typeof firebase === 'undefined' || typeof firebase.app === 'undefined') {
+            // Перевірка наявності глобального об'єкта firebase
+            if (typeof firebase === 'undefined' || typeof firebase.initializeApp === 'undefined') {
                 console.error("Firebase is not loaded correctly. Cannot proceed.");
                 // Fallback rendering a message if firebase fails to load
                 const RootApp = () => (
@@ -58,21 +59,6 @@
 
             // Деструктуризація для зручності
             const { useState, useEffect, useMemo, useCallback } = React;
-            
-            // --- ПРАВИЛЬНИЙ ДОСТУП ДО МОДУЛЬНИХ ФУНКЦІЙ через об'єкти служб ---
-            // Об'єкти служб (доступні на глобальному рівні після завантаження CDN)
-            // Доступ до firebase гарантований завдяки window.onload
-            const appModule = firebase.app;
-            const authModule = firebase.auth;
-            const firestoreModule = firebase.firestore;
-            
-            // Деструктуризація функцій з відповідних модулів
-            const { initializeApp } = appModule;
-            const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = authModule;
-            const { 
-                getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel, serverTimestamp 
-            } = firestoreModule;
-            // -------------------------------------------------------------------------------
             
             // --- ДОПОМІЖНІ ФУНКЦІЇ ТА КОНСТАНТИ ---
             
@@ -158,7 +144,7 @@
                   window.location.reload();
               };
 
-              // 1. Ініціалізація Firebase та Аутентифікація
+              // 1. Ініціалізація Firebase та Аутентифікація (ОНОВЛЕНО для Namespaced API)
               useEffect(() => {
                 if (typeof firebase === 'undefined') {
                     setError("Firebase SDK не завантажено. Перевірте підключення до мережі.");
@@ -166,29 +152,32 @@
                     return;
                 }
                 
-                setLogLevel('error');
+                // setLogLevel('error'); // Видалено, оскільки не підтримується у v8 в цьому форматі
 
                 try {
                   if (!firebaseConfig.apiKey) {
                     console.warn("Firebase config is missing, app will not save data.");
                   }
 
-                  const app = initializeApp(firebaseConfig);
-                  const firestore = getFirestore(app);
-                  const userAuth = getAuth(app);
+                  // Ініціалізація програми
+                  const app = firebase.initializeApp(firebaseConfig); 
+                  // Отримання служб
+                  const firestore = app.firestore();
+                  const userAuth = app.auth();
 
                   setDb(firestore);
 
-                  const unsubscribe = onAuthStateChanged(userAuth, (user) => {
+                  // Слухач стану автентифікації
+                  const unsubscribe = userAuth.onAuthStateChanged((user) => {
                     if (user) {
                       setUserId(user.uid);
                     } else {
                       const signIn = async () => {
                         try {
                           if (initialAuthToken) {
-                            await signInWithCustomToken(userAuth, initialAuthToken);
+                            await userAuth.signInWithCustomToken(initialAuthToken);
                           } else {
-                            await signInAnonymously(userAuth);
+                            await userAuth.signInAnonymously();
                           }
                         } catch (e) {
                           console.error("Error during Firebase sign-in:", e);
@@ -208,26 +197,26 @@
                 }
               }, []);
 
-              // 2. Отримання даних з Firestore
+              // 2. Отримання даних з Firestore (ОНОВЛЕНО для Namespaced API)
               useEffect(() => {
                 if (!db || !userId) return;
 
+                // Шлях до колекції для Namespaced API
                 const collectionPath = `artifacts/${appId}/users/${userId}/transactions`;
-                const transactionsCollection = collection(db, collectionPath);
-                const q = query(transactionsCollection);
-
+                
                 // onSnapshot забезпечує оновлення в реальному часі
-                const unsubscribe = onSnapshot(q, (snapshot) => {
-                  const fetchedTransactions = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                  })).sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                const unsubscribe = db.collection(collectionPath)
+                  .onSnapshot((snapshot) => {
+                    const fetchedTransactions = snapshot.docs.map(doc => ({
+                      id: doc.id,
+                      ...doc.data()
+                    })).sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
 
-                  setTransactions(fetchedTransactions);
-                }, (e) => {
-                  console.error("Error fetching transactions:", e);
-                  setError("Помилка при отриманні транзакцій.");
-                });
+                    setTransactions(fetchedTransactions);
+                  }, (e) => {
+                    console.error("Error fetching transactions:", e);
+                    setError("Помилка при отриманні транзакцій.");
+                  });
 
                 return () => unsubscribe();
               }, [db, userId]);
@@ -251,11 +240,13 @@
                   }
 
                   let date;
+                  // Namespaced API використовує t.timestamp.toDate() для Timestamp
                   if (t.timestamp && t.timestamp.toDate) {
                     date = t.timestamp.toDate();
                   } else if (t.timestamp instanceof Date) {
                     date = t.timestamp;
                   } else {
+                    // Fallback для дати (може бути рядок)
                     date = new Date(t.timestamp || getTodayDate()); 
                   }
                   
@@ -291,12 +282,13 @@
                 };
               }, [transactions]);
 
-              // Обробники форми та видалення (не змінено)
+              // Обробники форми та видалення
               const handleInputChange = (e) => {
                 const { name, value } = e.target;
                 setNewTransaction(prev => ({ ...prev, [name]: value }));
               };
 
+              // Обробка відправки форми (ОНОВЛЕНО для Namespaced API)
               const handleSubmit = useCallback(async (e) => {
                 e.preventDefault();
                 if (!db || !userId) {
@@ -317,7 +309,8 @@
                   setError("Некоректний формат дати.");
                   return;
                 }
-
+                
+                // Переконаємося, що ми зберігаємо стандартний об'єкт Date, який Firestore v8 обробляє як Timestamp
                 const transactionData = {
                   description,
                   amount: parsedAmount,
@@ -327,8 +320,9 @@
                 };
 
                 try {
-                  const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/transactions`);
-                  await addDoc(collectionRef, transactionData);
+                  const collectionPath = `artifacts/${appId}/users/${userId}/transactions`;
+                  // Використання db.collection().add() для Namespaced API
+                  await db.collection(collectionPath).add(transactionData);
 
                   setNewTransaction({ description: '', amount: '', type: 'expense', date: getTodayDate() }); 
                   setError(null);
@@ -338,12 +332,14 @@
                 }
               }, [newTransaction, db, userId]);
 
+              // Видалення транзакції (ОНОВЛЕНО для Namespaced API)
               const handleDelete = useCallback(async (id) => {
                 if (!db || !userId) return;
 
                 try {
-                  const docPath = `artifacts/${appId}/users/${userId}/transactions/${id}`;
-                  await deleteDoc(doc(db, docPath));
+                  const docPath = `artifacts/${appId}/users/${userId}/transactions`;
+                  // Використання db.collection().doc(id).delete() для Namespaced API
+                  await db.collection(docPath).doc(id).delete();
                   setError(null);
                 } catch (e) {
                   console.error("Error deleting document: ", e);
@@ -511,6 +507,7 @@
                               <div className="flex-1 min-w-0 pr-4">
                                 <p className="font-semibold text-gray-800 truncate">{t.description}</p>
                                 <p className="text-xs text-gray-500 mt-0.5">
+                                  {/* Перевірка, чи це об'єкт Timestamp (v8 API) */}
                                   {t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' }) : new Date(t.timestamp).toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' })}
                                 </p>
                               </div>
