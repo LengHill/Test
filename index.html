@@ -19,6 +19,7 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore-lite.js"></script>
 
     <style>
         /* Стилі для основного шрифту */
@@ -31,7 +32,6 @@
     <script type="text/babel">
         /**
          * Головна функція, яка запускає React-додаток.
-         * Вона викликається лише після повного завантаження сторінки (window.onload).
          */
         const startAppBootstrap = () => {
             const { useState, useEffect, useMemo, useCallback } = React;
@@ -53,20 +53,19 @@
 
             /**
              * Функція для очікування завантаження глобального об'єкта firebase.
-             * @returns {Promise<void>}
              */
             const waitForFirebase = () => {
                 return new Promise((resolve, reject) => {
                     let attempts = 0;
-                    const maxAttempts = 50; // 50 attempts * 100ms = 5 seconds timeout
+                    const maxAttempts = 50; 
                     const intervalTime = 100;
 
                     const checkFirebase = () => {
-                        if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function' && typeof firebase.auth === 'function') {
-                            console.log("Firebase SDK successfully detected.");
+                        // Перевіряємо, чи завантажені базові модулі
+                        if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
                             resolve();
                         } else if (attempts >= maxAttempts) {
-                            reject(new Error("Firebase SDK не завантажено. Об'єкти 'firebase' або 'firebase.auth' не знайдено."));
+                            reject(new Error("Firebase SDK не завантажено. Об'єкт 'firebase' не знайдено."));
                         } else {
                             attempts++;
                             setTimeout(checkFirebase, intervalTime);
@@ -82,10 +81,8 @@
                 const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
                 let firebaseConfig = {};
                 try {
-                    // Парсимо конфігурацію. Може викликати помилку, якщо рядок некоректний.
                     firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config.trim() !== '' ? JSON.parse(__firebase_config) : {};
                 } catch (e) {
-                    // Якщо парсинг невдалий, firebaseConfig залишиться {}
                     console.error("Помилка парсингу __firebase_config:", e);
                 }
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
@@ -109,10 +106,7 @@
                 const MonthlyChart = ({ summary, formatCurrency }) => {
                   if (summary.length === 0) return null;
 
-                  // Обчислення максимального значення для нормалізації смуг
                   const maxAbsValue = Math.max(...summary.map(m => Math.max(m.income, m.expense)));
-
-                  // Обмежуємо останніми 6 місяцями
                   const recentSummary = summary.slice(0, 6).reverse(); 
 
                   return (
@@ -123,7 +117,6 @@
                           const monthIndex = parseInt(m.monthYear.substring(5, 7)) - 1;
                           const monthName = MONTH_NAMES[monthIndex];
                           const year = m.monthYear.substring(0, 4);
-                          // Нормалізація width до maxAbsValue, але не більше 100%
                           const incomePercent = maxAbsValue > 0 ? Math.min((m.income / maxAbsValue) * 100, 100) : 0;
                           const expensePercent = maxAbsValue > 0 ? Math.min((m.expense / maxAbsValue) * 100, 100) : 0;
                           const monthBalance = m.income - m.expense;
@@ -137,15 +130,12 @@
                                 </span>
                               </div>
 
-                              {/* Смуги графіка */}
                               <div className="flex h-4 rounded-lg overflow-hidden bg-gray-200">
-                                {/* Income bar - use relative width based on normalized value */}
                                 <div 
                                   style={{ width: `${incomePercent}%` }} 
                                   className="bg-green-500 transition-all duration-500 ease-out" 
                                   title={`Дохід: ${formatCurrency(m.income)}`}
                                 />
-                                {/* Expense bar - use relative width based on normalized value */}
                                 <div 
                                   style={{ width: `${expensePercent}%` }}
                                   className="bg-red-500 transition-all duration-500 ease-out" 
@@ -166,6 +156,7 @@
                   const [transactions, setTransactions] = useState([]);
                   const [isLoading, setIsLoading] = useState(true);
                   const [error, setError] = useState(null);
+                  const [isDemoMode, setIsDemoMode] = useState(false); // Новий стан для Демо-режиму
                   const [newTransaction, setNewTransaction] = useState({
                     description: '',
                     amount: '',
@@ -173,32 +164,36 @@
                     date: getTodayDate()
                   });
 
-                  // Функція для примусового оновлення сторінки
                   const handleRefresh = () => {
                       window.location.reload();
                   };
 
-                  // 1. Ініціалізація Firebase та Аутентифікація
+                  // 1. Ініціалізація Firebase або перехід у ДЕМО-РЕЖИМ
                   useEffect(() => {
                     try {
-                      // *** ПОСИЛЕНА ПЕРЕВІРКА КОНФІГУРАЦІЇ ***
+                      // *** ПЕРЕВІРКА КОНФІГУРАЦІЇ: Якщо відсутні необхідні ключі, переходимо в Демо-режим ***
                       if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
-                        throw new Error("Неповна конфігурація Firebase: відсутні 'apiKey' та/або 'projectId'. Зверніться до підтримки Canvas.");
+                        console.warn("Firebase config is incomplete. Entering DEMO MODE.");
+                        setIsDemoMode(true);
+                        setUserId(crypto.randomUUID()); // Генеруємо тимчасовий ID для Демо
+                        // Ініціалізуємо порожнім масивом. Дані не будуть зберігатися між оновленнями.
+                        setTransactions([]); 
+                        setError("Увага! Додаток працює в ДЕМО-РЕЖИМІ. Конфігурація Firebase недійсна. Дані НЕ ЗБЕРІГАЮТЬСЯ і будуть втрачені при оновленні сторінки.");
+                        setIsLoading(false);
+                        return; // Зупиняємо ініціалізацію Firebase
                       }
 
-                      // Ініціалізація програми
+                      // --- ЛОГІКА СТАНДАРТНОГО РЕЖИМУ (З Firebase) ---
                       const app = firebase.initializeApp(firebaseConfig); 
-                      // Отримання служб
                       const firestore = app.firestore();
                       const userAuth = app.auth();
 
                       setDb(firestore);
 
-                      // Слухач стану автентифікації
                       const unsubscribe = userAuth.onAuthStateChanged((user) => {
                         if (user) {
                           setUserId(user.uid);
-                          setIsLoading(false); // Зупиняємо завантаження після отримання user
+                          setIsLoading(false);
                         } else {
                           const signIn = async () => {
                             try {
@@ -219,31 +214,31 @@
 
                       return () => unsubscribe();
                     } catch (e) {
-                      console.error("Initialization Error (Detailed):", e);
-                      // Виведення критичного повідомлення
-                      setError(`Критична Помилка Ініціалізації: ${e.message}`);
+                      console.error("Initialization Error (Fallback to Demo):", e);
+                      // Якщо Firebase ініціалізація завершилася невдачею з іншої причини, все одно переходимо в Демо-режим
+                      setIsDemoMode(true);
+                      setUserId(crypto.randomUUID());
+                      setTransactions([]); 
+                      setError(`Критична Помилка Firebase. Перехід у ДЕМО-РЕЖИМ. Дані не зберігаються. Деталі помилки: ${e.message}`);
                       setIsLoading(false);
                     }
                   }, []);
 
-                  // 2. Отримання даних з Firestore
+                  // 2. Отримання даних з Firestore (тільки в стандартному режимі)
                   useEffect(() => {
-                    if (!db || !userId) return;
+                    if (!db || !userId || isDemoMode) return;
 
-                    // Шлях до колекції
                     const collectionPath = `artifacts/${appId}/users/${userId}/transactions`;
                     
-                    // onSnapshot забезпечує оновлення в реальному часі
                     const unsubscribe = db.collection(collectionPath)
                       .onSnapshot((snapshot) => {
                         const fetchedTransactions = snapshot.docs.map(doc => ({
                           id: doc.id,
                           ...doc.data()
                         })).sort((a, b) => {
-                            // Сортування за часовою міткою, від найновішої до найстарішої
                             const timeA = (b.timestamp?.seconds || b.timestamp?.getTime() / 1000 || 0);
                             const timeB = (a.timestamp?.seconds || a.timestamp?.getTime() / 1000 || 0);
-                            return timeA - timeB; // Сортування від новіших до старіших
+                            return timeA - timeB; 
                         });
 
                         setTransactions(fetchedTransactions);
@@ -253,7 +248,7 @@
                       });
 
                     return () => unsubscribe();
-                  }, [db, userId]);
+                  }, [db, userId, isDemoMode]); // Залежність від isDemoMode
 
                   // Розрахунок загального балансу та місячних підсумків
                   const { totalBalance, monthlySummary, totalIncome, totalExpense } = useMemo(() => {
@@ -274,13 +269,12 @@
                       }
 
                       let date;
-                      // Обробка об'єкта Timestamp v8 (t.timestamp.toDate()) або стандартного об'єкта Date
-                      if (t.timestamp && typeof t.timestamp.toDate === 'function') {
+                      // Обробка для Firebase Timestamp або для локальної Date в Демо-режимі
+                      if (t.timestamp?.toDate) {
                         date = t.timestamp.toDate();
                       } else if (t.timestamp instanceof Date) {
-                        date = t.timestamp;
+                         date = t.timestamp;
                       } else {
-                        // Fallback для дати (може бути рядок)
                         date = new Date(t.timestamp || getTodayDate()); 
                       }
                       
@@ -304,7 +298,6 @@
                       }
                     });
 
-                    // Сортування від найновішого місяця до найстарішого
                     const sortedMonthlySummary = Object.values(monthlyData).sort((a, b) => {
                       return b.monthYear.localeCompare(a.monthYear);
                     });
@@ -323,11 +316,10 @@
                     setNewTransaction(prev => ({ ...prev, [name]: value }));
                   };
 
-                  // Обробка відправки форми
                   const handleSubmit = useCallback(async (e) => {
                     e.preventDefault();
-                    if (!db || !userId) {
-                      setError("Додаток ще не ініціалізований. Зачекайте.");
+                    if (!userId) {
+                      setError(isDemoMode ? "Додаток у Демо-режимі. Помилка внутрішньої ініціалізації." : "Додаток ще не ініціалізований. Зачекайте.");
                       return;
                     }
 
@@ -345,43 +337,59 @@
                       return;
                     }
                     
-                    // Зберігаємо стандартний об'єкт Date, який Firestore v8 обробляє як Timestamp
                     const transactionData = {
+                      id: crypto.randomUUID(), // Завжди генеруємо ID
                       description,
                       amount: parsedAmount,
                       type,
-                      timestamp: transactionDate, 
+                      timestamp: transactionDate, // Використовуємо JS Date
                       userId,
                     };
 
+                    if (isDemoMode) {
+                        // --- ДЕМО-РЕЖИМ: Зберігаємо лише в локальний стан ---
+                        setTransactions(prev => [transactionData, ...prev]);
+                        setNewTransaction({ description: '', amount: '', type: 'expense', date: getTodayDate() }); 
+                        // Не очищаємо загальну помилку, бо це попередження Демо-режиму
+                        return;
+                    }
+
+                    // --- СТАНДАРТНИЙ РЕЖИМ: Зберігаємо у Firebase ---
                     try {
                       const collectionPath = `artifacts/${appId}/users/${userId}/transactions`;
-                      await db.collection(collectionPath).add(transactionData);
+                      // У Firebase ID буде згенеровано автоматично
+                      await db.collection(collectionPath).add(transactionData); 
 
                       setNewTransaction({ description: '', amount: '', type: 'expense', date: getTodayDate() }); 
                       setError(null);
                     } catch (e) {
                       console.error("Error adding document: ", e);
-                      setError(`Помилка при збереженні транзакції: ${e.message}`);
+                      setError(`Помилка при збереженні транзакції у Firebase: ${e.message}`);
                     }
-                  }, [newTransaction, db, userId]);
+                  }, [newTransaction, db, userId, isDemoMode]);
 
-                  // Видалення транзакції
                   const handleDelete = useCallback(async (id) => {
-                    if (!db || !userId) return;
+                    if (!userId) return;
 
+                    if (isDemoMode) {
+                        // --- ДЕМО-РЕЖИМ: Видаляємо з локального стану ---
+                        setTransactions(prev => prev.filter(t => t.id !== id));
+                        // Не очищаємо загальну помилку, бо це попередження Демо-режиму
+                        return;
+                    }
+
+                    // --- СТАНДАРТНИЙ РЕЖИМ: Видаляємо з Firebase ---
                     try {
                       const docPath = `artifacts/${appId}/users/${userId}/transactions`;
                       await db.collection(docPath).doc(id).delete();
                       setError(null);
                     } catch (e) {
                       console.error("Error deleting document: ", e);
-                      setError(`Помилка при видаленні транзакції: ${e.message}`);
+                      setError(`Помилка при видаленні транзакції з Firebase: ${e.message}`);
                     }
-                  }, [db, userId]);
+                  }, [db, userId, isDemoMode]);
 
                   const formatCurrency = (value) => {
-                    // Використовуємо PLN як валюту
                     return new Intl.NumberFormat('pl-PL', {
                       style: 'currency',
                       currency: 'PLN',
@@ -389,7 +397,7 @@
                     }).format(value);
                   };
 
-                  if (isLoading) {
+                  if (isLoading && !isDemoMode) {
                     return (
                       <div className="flex items-center justify-center min-h-screen bg-gray-50">
                         <div className="text-xl font-semibold text-indigo-600">Завантаження...</div>
@@ -402,7 +410,6 @@
                       <div className="max-w-xl mx-auto">
                         <header className="text-center mb-6">
                           <h1 className="text-3xl font-bold text-gray-800 mb-1">Мій Фінансовий Трекер</h1>
-                          {/* Додано кнопку для примусового оновлення сторінки */}
                           <div className="flex justify-center items-center space-x-4 mt-2">
                               <p className="text-sm text-gray-500">
                                   ID користувача: <span className="font-mono text-xs p-1 bg-white rounded-md">{userId || 'Недоступно'}</span>
@@ -421,14 +428,18 @@
                         </header>
 
                         {error && (
-                          <div className="p-4 mb-4 text-sm text-red-800 bg-red-100 border border-red-300 rounded-lg" role="alert">
-                            <p className="font-semibold mb-1">Помилка:</p>
+                          <div className={`p-4 mb-4 text-sm rounded-lg border ${isDemoMode ? 'bg-yellow-100 text-yellow-800 border-yellow-300' : 'bg-red-100 text-red-800 border-red-300'}`} role="alert">
+                            <p className="font-semibold mb-1">Повідомлення:</p>
                             <p className="font-mono text-xs break-all whitespace-pre-wrap">{error}</p>
-                            <p className="text-xs mt-2 text-red-600">
-                                Якщо ви бачите повідомлення про відсутність ключів, це означає, що конфігурація Firebase не була коректно надана середовищем.
-                            </p>
+                            {isDemoMode && (
+                                <p className="text-xs mt-2 text-yellow-700 font-bold">
+                                    Зверніть увагу: У ДЕМО-РЕЖИМІ ваші дані НЕ ЗБЕРЕЖУТЬСЯ після оновлення сторінки.
+                                </p>
+                            )}
                           </div>
                         )}
+
+                        {/* ... Решта UI залишається незмінною ... */}
 
                         {/* Картка загального балансу */}
                         <div className="bg-white shadow-xl rounded-2xl p-6 mb-8 border-t-4 border-indigo-500">
@@ -484,7 +495,7 @@
                             </div>
 
                             {/* Кнопка додавання */}
-                            <button type="submit" className="w-full py-3 px-4 border border-transparent rounded-lg shadow-md text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 transform hover:scale-[1.01]" disabled={!db || !userId}>
+                            <button type="submit" className="w-full py-3 px-4 border border-transparent rounded-lg shadow-md text-base font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 transform hover:scale-[1.01]" disabled={isLoading}>
                               Додати
                             </button>
                           </form>
@@ -545,7 +556,7 @@
                                   <div className="flex-1 min-w-0 pr-4">
                                     <p className="font-semibold text-gray-800 truncate">{t.description}</p>
                                     <p className="text-xs text-gray-500 mt-0.5">
-                                      {/* Перевірка, чи це об'єкт Timestamp (v8 API) */}
+                                      {/* У Демо-режимі timestamp — це простий об'єкт Date */}
                                       {t.timestamp?.toDate ? t.timestamp.toDate().toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' }) : new Date(t.timestamp).toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' })}
                                     </p>
                                   </div>
