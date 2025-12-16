@@ -16,7 +16,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- CDN для Firebase SDKs (v9.x MODULAR - працюють з глобальним об'єктом) -->
-    <!-- Змінено з -compat.js на стандартні модульні v9 скрипти -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
@@ -38,14 +37,19 @@
         // Деструктуризація для зручності (доступно завдяки CDN)
         const { useState, useEffect, useMemo, useCallback } = React;
         
-        // Отримання функцій через глобальний об'єкт 'firebase'. 
-        // Всі модульні функції (getFirestore, doc, collection, getAuth, etc.) 
-        // в v9 CDN зазвичай доступні через деструктуризацію глобального об'єкта 'firebase'.
+        // --- ВИПРАВЛЕНО: Правильний доступ до модульних функцій через об'єкти служб ---
+        // Об'єкти служб (доступні на глобальному рівні після завантаження CDN)
+        const appModule = firebase.app;
+        const authModule = firebase.auth;
+        const firestoreModule = firebase.firestore;
+        
+        // Деструктуризація функцій з відповідних модулів
+        const { initializeApp } = appModule;
+        const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = authModule;
         const { 
-            initializeApp, 
-            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
             getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, setLogLevel, serverTimestamp 
-        } = firebase;
+        } = firestoreModule;
+        // -------------------------------------------------------------------------------
         
         // --- ДОПОМІЖНІ ФУНКЦІЇ ТА КОНСТАНТИ ---
         
@@ -62,7 +66,7 @@
           return `${year}-${month}-${day}`;
         };
 
-        // Компонент для відображення місячного графіка (опущено для стислості)
+        // Компонент для відображення місячного графіка
         const MonthlyChart = ({ summary, formatCurrency }) => {
           if (summary.length === 0) return null;
 
@@ -126,6 +130,11 @@
             date: getTodayDate()
           });
 
+          // Функція для примусового оновлення сторінки
+          const handleRefresh = () => {
+              window.location.reload();
+          };
+
           // 1. Ініціалізація Firebase та Аутентифікація
           useEffect(() => {
             if (typeof firebase === 'undefined') {
@@ -134,21 +143,14 @@
                 return;
             }
             
-            // --- ЛОГІКА ДЕБАГУ ---
-            console.log("Firebase Config:", firebaseConfig); 
-            console.log("App ID:", appId);
-            // ---------------------
-            
             setLogLevel('error');
 
             try {
               if (!firebaseConfig.apiKey) {
-                // Це може статися, якщо глобальні змінні не передаються в оточенні.
                 console.warn("Firebase config is missing, app will not save data.");
               }
 
               const app = initializeApp(firebaseConfig);
-              // ВИПРАВЛЕНО: getFirestore тепер доступний.
               const firestore = getFirestore(app);
               const userAuth = getAuth(app);
 
@@ -177,22 +179,21 @@
 
               return () => unsubscribe();
             } catch (e) {
-              // Змінено повідомлення для зручності дебагу
               console.error("Initialization Error (Detailed):", e);
               setError("Помилка ініціалізації додатку. Будь ласка, перевірте КОНСОЛЬ браузера (F12) для деталей!");
               setIsLoading(false);
             }
           }, []);
 
-          // 2. Отримання даних з Firestore (не змінено)
+          // 2. Отримання даних з Firestore
           useEffect(() => {
             if (!db || !userId) return;
 
-            // Зверніть увагу, ми використовуємо 'artifacts/${appId}/users/${userId}/transactions'
             const collectionPath = `artifacts/${appId}/users/${userId}/transactions`;
             const transactionsCollection = collection(db, collectionPath);
             const q = query(transactionsCollection);
 
+            // onSnapshot забезпечує оновлення в реальному часі
             const unsubscribe = onSnapshot(q, (snapshot) => {
               const fetchedTransactions = snapshot.docs.map(doc => ({
                 id: doc.id,
@@ -208,7 +209,7 @@
             return () => unsubscribe();
           }, [db, userId]);
 
-          // Розрахунок загального балансу та місячних підсумків (не змінено)
+          // Розрахунок загального балансу та місячних підсумків
           const { totalBalance, monthlySummary, totalIncome, totalExpense } = useMemo(() => {
             let balance = 0;
             let income = 0;
@@ -232,7 +233,6 @@
               } else if (t.timestamp instanceof Date) {
                 date = t.timestamp;
               } else {
-                // Використовуємо рядок дати, якщо timestamp не є об'єктом Firebase Timestamp
                 date = new Date(t.timestamp || getTodayDate()); 
               }
               
@@ -268,8 +268,7 @@
             };
           }, [transactions]);
 
-          // Обробник змін форми, handleSubmit, handleDelete, formatCurrency (не змінено)
-
+          // Обробники форми та видалення (не змінено)
           const handleInputChange = (e) => {
             const { name, value } = e.target;
             setNewTransaction(prev => ({ ...prev, [name]: value }));
@@ -300,7 +299,6 @@
               description,
               amount: parsedAmount,
               type,
-              // Використовуємо об'єкт Date для збереження, Firestore конвертує його в Timestamp
               timestamp: transactionDate, 
               userId,
             };
@@ -351,9 +349,22 @@
               <div className="max-w-xl mx-auto">
                 <header className="text-center mb-6">
                   <h1 className="text-3xl font-bold text-gray-800 mb-1">Мій Фінансовий Трекер</h1>
-                  <p className="text-sm text-gray-500">
-                    ID користувача: <span className="font-mono text-xs p-1 bg-white rounded-md">{userId || 'Недоступно'}</span>
-                  </p>
+                  {/* ОНОВЛЕНО: Додано кнопку для примусового оновлення сторінки */}
+                  <div className="flex justify-center items-center space-x-4 mt-2">
+                      <p className="text-sm text-gray-500">
+                          ID користувача: <span className="font-mono text-xs p-1 bg-white rounded-md">{userId || 'Недоступно'}</span>
+                      </p>
+                      <button
+                          onClick={handleRefresh}
+                          className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800 p-1 rounded-lg transition duration-150"
+                          title="Примусово оновити сторінку та дані"
+                      >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m15.356 2H21v-5m-5.447 15.447L15 21" />
+                          </svg>
+                          Оновити
+                      </button>
+                  </div>
                 </header>
 
                 {error && (
@@ -362,7 +373,7 @@
                   </div>
                 )}
 
-                {/* Картка загального балансу (не змінено) */}
+                {/* Картка загального балансу */}
                 <div className="bg-white shadow-xl rounded-2xl p-6 mb-8 border-t-4 border-indigo-500">
                   <h2 className="text-lg font-semibold text-gray-700 mb-2">Загальний Баланс за Весь Час</h2>
                   <p className={`text-4xl font-extrabold ${totalBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -378,10 +389,10 @@
                   </div>
                 </div>
 
-                {/* Графік по місяцях (не змінено) */}
+                {/* Графік по місяцях */}
                 <MonthlyChart summary={monthlySummary} formatCurrency={formatCurrency} />
 
-                {/* Форма додавання транзакції (не змінено) */}
+                {/* Форма додавання транзакції */}
                 <div className="bg-white shadow-lg rounded-2xl p-6 mb-8">
                   <h2 className="text-xl font-bold text-gray-800 mb-4">Додати Нову Транзакцію</h2>
                   <form onSubmit={handleSubmit} className="space-y-4">
@@ -458,7 +469,7 @@
                     )}
                 </div>
 
-                {/* Список транзакцій (не змінено) */}
+                {/* Список транзакцій */}
                 <div className="bg-white shadow-lg rounded-2xl p-6">
                   <h2 className="text-xl font-bold text-gray-800 mb-4">Історія Транзакцій ({transactions.length})</h2>
 
