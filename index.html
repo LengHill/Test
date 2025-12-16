@@ -16,7 +16,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- Firebase SDKs (v8.x NAMESPACED API) -->
-    <!-- Використовуємо v8, оскільки вона більш стабільна у CDN середовищі -->
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
@@ -40,10 +39,12 @@
             // Компонент, який відображає повідомлення про помилку завантаження
             const RootErrorApp = ({ message }) => (
                 <div className="flex items-center justify-center min-h-screen bg-gray-50 p-4">
-                    <div className="text-center p-6 bg-white shadow-xl rounded-xl">
+                    <div className="text-center p-6 bg-white shadow-xl rounded-xl max-w-sm">
                         <h1 className="text-3xl font-bold text-red-600 mb-4">Помилка Завантаження (Фатальна)</h1>
-                        <p className="text-gray-700 font-mono text-sm break-all">{message}</p>
-                        <p className="text-sm text-gray-500 mt-4">Спробуйте оновити сторінку або перевірити підключення до мережі.</p>
+                        <p className="text-gray-700 font-mono text-sm break-all whitespace-pre-wrap">
+                            {message}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-4">Спробуйте оновити сторінку.</p>
                     </div>
                 </div>
             );
@@ -84,8 +85,8 @@
                     // Парсимо конфігурацію. Може викликати помилку, якщо рядок некоректний.
                     firebaseConfig = typeof __firebase_config !== 'undefined' && __firebase_config.trim() !== '' ? JSON.parse(__firebase_config) : {};
                 } catch (e) {
+                    // Якщо парсинг невдалий, firebaseConfig залишиться {}
                     console.error("Помилка парсингу __firebase_config:", e);
-                    // Якщо парсинг невдалий, ініціалізація Firebase майже точно не вдасться
                 }
                 const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
@@ -180,12 +181,12 @@
                   // 1. Ініціалізація Firebase та Аутентифікація
                   useEffect(() => {
                     try {
-                      if (!firebaseConfig.apiKey) {
-                        console.warn("Firebase config is missing API key. Data saving might fail.");
+                      // *** ПОСИЛЕНА ПЕРЕВІРКА КОНФІГУРАЦІЇ ***
+                      if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+                        throw new Error("Неповна конфігурація Firebase: відсутні 'apiKey' та/або 'projectId'. Зверніться до підтримки Canvas.");
                       }
 
                       // Ініціалізація програми
-                      // Це місце, де може виникнути помилка, якщо конфігурація некоректна
                       const app = firebase.initializeApp(firebaseConfig); 
                       // Отримання служб
                       const firestore = app.firestore();
@@ -219,8 +220,8 @@
                       return () => unsubscribe();
                     } catch (e) {
                       console.error("Initialization Error (Detailed):", e);
-                      // *** Оновлене повідомлення про помилку ***
-                      setError(`Помилка ініціалізації: ${e.message}. Це може бути пов'язано з відсутністю ключів у конфігурації Firebase.`);
+                      // Виведення критичного повідомлення
+                      setError(`Критична Помилка Ініціалізації: ${e.message}`);
                       setIsLoading(false);
                     }
                   }, []);
@@ -234,7 +235,6 @@
                     
                     // onSnapshot забезпечує оновлення в реальному часі
                     const unsubscribe = db.collection(collectionPath)
-                      // Сортування в пам'яті буде виконано після отримання даних, оскільки orderBy() в Canvas може викликати помилку індексації.
                       .onSnapshot((snapshot) => {
                         const fetchedTransactions = snapshot.docs.map(doc => ({
                           id: doc.id,
@@ -421,10 +421,12 @@
                         </header>
 
                         {error && (
-                          <div className="p-3 mb-4 text-sm text-red-800 bg-red-100 rounded-lg" role="alert">
-                            {/* Відображаємо деталі помилки, щоб користувач міг її виправити */}
+                          <div className="p-4 mb-4 text-sm text-red-800 bg-red-100 border border-red-300 rounded-lg" role="alert">
                             <p className="font-semibold mb-1">Помилка:</p>
-                            <p className="font-mono text-xs break-all">{error}</p>
+                            <p className="font-mono text-xs break-all whitespace-pre-wrap">{error}</p>
+                            <p className="text-xs mt-2 text-red-600">
+                                Якщо ви бачите повідомлення про відсутність ключів, це означає, що конфігурація Firebase не була коректно надана середовищем.
+                            </p>
                           </div>
                         )}
 
