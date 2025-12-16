@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мій Фінансовий Трекер PWA</title>
+    <title>Мій Локальний Фінансовий Трекер</title>
     
-    <!-- PWA та Маніфест -->
+    <!-- PWA та Маніфест (залишаємо для можливості встановлення) -->
     <link rel="manifest" href="./finance_manifest.json">
     <meta name="theme-color" content="#4F46E5">
 
@@ -14,33 +14,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Firebase SDK Imports (Module type for tree-shaking) -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, addDoc, deleteDoc, onSnapshot, collection, query, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        
-        // Встановлюємо рівень логування для налагодження Firebase
-        setLogLevel('Debug'); 
-
-        // Глобальні змінні для використання в React компоненті
-        window.firebaseDependencies = {
-            initializeApp, 
-            getAuth, 
-            signInAnonymously, 
-            signInWithCustomToken, 
-            onAuthStateChanged,
-            getFirestore, 
-            doc, 
-            addDoc, 
-            deleteDoc, 
-            onSnapshot, 
-            collection, 
-            query, 
-            serverTimestamp
-        };
-    </script>
 
     <style>
         /* Стилі для основного шрифту */
@@ -53,13 +26,6 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback } = React;
         
-        // Отримуємо залежності Firebase з глобального об'єкта
-        const {
-            initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
-            getFirestore, addDoc, deleteDoc, onSnapshot, collection, serverTimestamp
-        } = window.firebaseDependencies || {};
-
-
         // --- ДОПОМІЖНІ ФУНКЦІЇ ТА КОНСТАНТИ ---
         
         const MONTH_NAMES = [
@@ -73,6 +39,17 @@
           const month = String(today.getMonth() + 1).padStart(2, '0');
           const day = String(today.getDate()).padStart(2, '0');
           return `${year}-${month}-${day}`;
+        };
+        
+        // Функція для генерації унікального ID (для Local Storage)
+        const generateUniqueId = () => crypto.randomUUID(); 
+
+        const formatCurrency = (value) => {
+            return new Intl.NumberFormat('pl-PL', {
+              style: 'currency',
+              currency: 'PLN',
+              maximumFractionDigits: 2
+            }).format(value);
         };
 
         // Компонент для відображення місячного графіка
@@ -127,13 +104,6 @@
         };
 
         const App = () => {
-          // --- Стан Firebase та Аутентифікації ---
-          const [db, setDb] = useState(null);
-          const [auth, setAuth] = useState(null);
-          const [userId, setUserId] = useState(null);
-          const [isAuthReady, setIsAuthReady] = useState(false);
-          const [connectionStatus, setConnectionStatus] = useState('Підключення...');
-          
           // --- Стан Додатку ---
           const [transactions, setTransactions] = useState([]);
           const [error, setError] = useState(null);
@@ -143,133 +113,62 @@
             type: 'expense', 
             date: getTodayDate()
           });
+          
+          const LOCAL_STORAGE_KEY = 'localFinanceTrackerData';
 
-          // 1. Ініціалізація Firebase та Аутентифікація
+          // 1. Завантаження даних з Local Storage при завантаженні
           useEffect(() => {
-            if (!initializeApp) {
-                setConnectionStatus('Помилка: Не завантажено Firebase SDK.');
-                return;
-            }
-            
-            let firebaseConfig;
-            
-            // 1.1 Посилена Перевірка та Парсинг Конфігурації (Критична Секція)
             try {
-                if (!window.__firebase_config) {
-                    throw new Error("Змінна __firebase_config відсутня у середовищі.");
-                }
-                firebaseConfig = JSON.parse(window.__firebase_config);
-                if (!firebaseConfig.projectId) {
-                    throw new Error("У конфігурації Firebase відсутній projectId.");
+                const storedTransactions = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (storedTransactions) {
+                    // Парсинг даних: перетворення суми на число, дати на об'єкт Date
+                    const loaded = JSON.parse(storedTransactions).map(t => ({
+                        ...t,
+                        amount: parseFloat(t.amount),
+                        timestamp: new Date(t.timestamp),
+                    }));
+                    setTransactions(loaded);
+                    setError(null);
                 }
             } catch (e) {
-                console.error("Критична Помилка Конфігурації Firebase:", e);
-                // Встановлюємо стан вимкнення та виходимо
-                setConnectionStatus('Критична Помилка Конфігурації (Зберігання ВИМКНЕНО).');
-                setError(`Не вдалося ініціалізувати Firebase: ${e.message}. Дані не будуть зберігатися в хмарі.`);
-                setDb(null); // Явно вимикаємо БД
-                setUserId('CLOUD_DISABLED'); // Встановлюємо фіктивний ID, щоб не було помилок
-                setIsAuthReady(true); // Вважаємо готовим, але вимкненим
-                return; 
+                console.error("Помилка завантаження даних з локального сховища:", e);
+                setError("Помилка завантаження локальних даних. Сховище може бути пошкоджене.");
             }
+          }, []); 
 
-            // 1.2 Ініціалізація, якщо конфігурація коректна
-            try {
-                const app = initializeApp(firebaseConfig);
-                const firestoreDb = getFirestore(app);
-                const firebaseAuth = getAuth(app);
-                
-                setDb(firestoreDb);
-                setAuth(firebaseAuth);
-
-                // Слухаємо зміни стану автентифікації
-                const unsubscribe = onAuthStateChanged(firebaseAuth, async (user) => {
-                    if (user) {
-                        setUserId(user.uid);
-                        setConnectionStatus('Підключено до хмари.');
-                    } else {
-                        // Якщо немає користувача, спробуємо увійти анонімно або за токеном
-                        try {
-                            if (window.__initial_auth_token) {
-                                await signInWithCustomToken(firebaseAuth, window.__initial_auth_token);
-                            } else {
-                                await signInAnonymously(firebaseAuth);
-                            }
-                        } catch (authError) {
-                            console.error("Помилка автентифікації:", authError);
-                            setError("Помилка автентифікації. Дані не будуть збережені.");
-                            setConnectionStatus('Помилка автентифікації.');
-                        }
-                    }
-                    // Встановлюємо готовність тільки після першої перевірки
-                    setIsAuthReady(true);
-                });
-
-                return () => unsubscribe(); // Очищення слухача
-            } catch (e) {
-                console.error("Критична помилка ініціалізації Firebase:", e);
-                setError(`Критична помилка: ${e.message}. Дані не збережено.`);
-                setConnectionStatus('Критична помилка ініціалізації.');
-            }
-          }, []); // Запускається один раз
-
-          // 2. Слухач Firestore (onSnapshot) для транзакцій
+          // 2. Збереження даних у Local Storage при зміні транзакцій
           useEffect(() => {
-            // Запобігаємо запиту до Firebase, поки автентифікація не буде завершена
-            if (!db || !userId || !isAuthReady || userId === 'CLOUD_DISABLED') {
-                if (userId === 'CLOUD_DISABLED') {
-                    setTransactions([]); // Очищуємо, якщо хмара недоступна
+            try {
+                if (transactions.length > 0) {
+                    // Конвертація об'єкта Date в ISO рядок для збереження
+                    const serializableTransactions = transactions.map(t => ({
+                        ...t,
+                        timestamp: t.timestamp.toISOString(),
+                        amount: t.amount.toFixed(2), // Зберігаємо як рядок з 2 знаками
+                    }));
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(serializableTransactions));
+                } else {
+                    // Очищуємо, якщо список порожній
+                    localStorage.removeItem(LOCAL_STORAGE_KEY);
                 }
-                return;
+                setError(null);
+            } catch (e) {
+                console.error("Помилка збереження даних у локальне сховище:", e);
+                setError("Помилка збереження даних. Сховище пристрою переповнене або недоступне.");
             }
+          }, [transactions]);
 
-            const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-            // Шлях для приватних даних користувача: /artifacts/{appId}/users/{userId}/transactions
-            const transactionsPath = `artifacts/${appId}/users/${userId}/transactions`;
-            const transactionsColRef = collection(db, transactionsPath);
 
-            // Використовуємо onSnapshot для отримання даних у реальному часі
-            const unsubscribe = onSnapshot(transactionsColRef, (snapshot) => {
-                const loadedTransactions = snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    // Конвертуємо об'єкт Timestamp назад у об'єкт Date, якщо існує
-                    const timestamp = data.timestamp && data.timestamp.toDate ? data.timestamp.toDate() : new Date();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        amount: parseFloat(data.amount), // Переконуємось, що це число
-                        timestamp: timestamp,
-                    };
-                });
-                
-                // Сортуємо в пам'яті за часом (від новіших до старіших)
-                loadedTransactions.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
-                setTransactions(loadedTransactions);
-                setConnectionStatus('Дані синхронізовано з хмарою.');
-
-            }, (err) => {
-                console.error("Помилка onSnapshot:", err);
-                setError("Помилка завантаження транзакцій з хмари. Зв'язок розірвано.");
-                setConnectionStatus('Помилка синхронізації.');
-            });
-
-            return () => unsubscribe(); // Очищення слухача при видаленні компонента
-          }, [db, userId, isAuthReady]); // Запускається, коли db та userId готові
-
-          const handleRefresh = () => {
-              window.location.reload();
-          };
-
-          // Розрахунок загального балансу та місячних підсумків
+          // Розрахунок загального балансу та місячних підсумків (логіка не змінилася)
           const { totalBalance, monthlySummary, totalIncome, totalExpense } = useMemo(() => {
-            //... (Логіка розрахунків залишається незмінною) ...
             let balance = 0;
             let income = 0;
             let expense = 0;
             const monthlyData = {};
 
             transactions.forEach(t => {
-              const amount = t.amount || 0;
+              // Знову парсимо, щоб переконатися, що це число для розрахунку (хоча в стані воно вже числове)
+              const amount = parseFloat(t.amount) || 0; 
               
               if (t.type === 'income') {
                 balance += amount;
@@ -280,7 +179,7 @@
               }
 
               const date = t.timestamp;
-              if (isNaN(date.getTime())) return; // Пропускаємо недійсні дати
+              if (isNaN(date.getTime())) return; 
               
               const year = date.getFullYear();
               const month = String(date.getMonth() + 1).padStart(2, '0'); 
@@ -315,124 +214,113 @@
           }, [transactions]);
 
 
-          // Обробники форми та видалення (з використанням Firestore)
+          // Обробник форми
           const handleInputChange = (e) => {
             const { name, value } = e.target;
             setNewTransaction(prev => ({ ...prev, [name]: value }));
           };
 
-          const handleSubmit = useCallback(async (e) => {
+          const handleSubmit = useCallback((e) => {
             e.preventDefault();
-
-            if (!db || userId === 'CLOUD_DISABLED') {
-                setError("Хмарне збереження вимкнено через помилку конфігурації. Додаток не може зберегти дані.");
-                return;
-            }
 
             const { description, amount, type, date } = newTransaction; 
 
             const parsedAmount = parseFloat(amount);
-            if (!description || parsedAmount <= 0 || isNaN(parsedAmount)) {
+            if (!description.trim() || parsedAmount <= 0 || isNaN(parsedAmount)) {
               setError("Будь ласка, введіть коректний опис і суму.");
               return;
             }
 
-            try {
-                const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-                const transactionsPath = `artifacts/${appId}/users/${userId}/transactions`;
+            const newId = generateUniqueId();
 
-                const transactionData = {
-                    description: description.trim(),
-                    amount: parsedAmount.toFixed(2), // Зберігаємо як рядок з 2 знаками після коми
-                    type,
-                    // Зберігаємо дату як об'єкт Date, але Firebase автоматично перетворює її на Timestamp
-                    timestamp: new Date(date), 
-                    userId,
-                };
+            const transactionData = {
+                id: newId,
+                description: description.trim(),
+                amount: parsedAmount, // Зберігаємо як число в стані
+                type,
+                timestamp: new Date(date), 
+            };
 
-                await addDoc(collection(db, transactionsPath), transactionData);
-                
-                // Після успішного додавання очищуємо форму
-                setNewTransaction({ description: '', amount: '', type: 'expense', date: getTodayDate() }); 
-                setError(null);
-                setConnectionStatus('Транзакцію додано та збережено.');
+            // Оновлення стану та автоматичне збереження через useEffect
+            setTransactions(prev => [transactionData, ...prev]); 
+            
+            // Очищуємо форму
+            setNewTransaction({ description: '', amount: '', type: 'expense', date: getTodayDate() }); 
+            setError(null);
+            
+          }, [newTransaction]);
 
-            } catch (submitError) {
-                console.error("Помилка додавання транзакції:", submitError);
-                setError("Помилка збереження транзакції в хмарі.");
-                setConnectionStatus('Помилка збереження.');
-            }
-          }, [newTransaction, db, userId]);
+          const handleDelete = useCallback((id) => {
+            // Фільтруємо та видаляємо елемент з масиву
+            setTransactions(prev => prev.filter(t => t.id !== id));
+            setError(null);
+          }, []);
 
-          const handleDelete = useCallback(async (id) => {
-            if (!db || userId === 'CLOUD_DISABLED') {
-                setError("Хмарне збереження вимкнено через помилку конфігурації. Неможливо видалити.");
-                return;
-            }
-
-            try {
-                const appId = typeof window.__app_id !== 'undefined' ? window.__app_id : 'default-app-id';
-                const transactionDocPath = `artifacts/${appId}/users/${userId}/transactions/${id}`;
-                
-                await deleteDoc(doc(db, transactionDocPath));
-                setConnectionStatus('Транзакцію видалено.');
-
-            } catch (deleteError) {
-                console.error("Помилка видалення транзакції:", deleteError);
-                setError("Помилка видалення транзакції з хмари.");
-                setConnectionStatus('Помилка видалення.');
-            }
-          }, [db, userId]);
-
-          const formatCurrency = (value) => {
-            return new Intl.NumberFormat('pl-PL', {
-              style: 'currency',
-              currency: 'PLN',
-              maximumFractionDigits: 2
-            }).format(value);
+          // --- ФУНКЦІЯ ЕКСПОРТУ ДАНИХ У JSON ---
+          const handleExport = () => {
+              if (transactions.length === 0) {
+                  setError("Немає даних для експорту.");
+                  return;
+              }
+              
+              const dataToExport = transactions.map(t => ({
+                  id: t.id,
+                  description: t.description,
+                  amount: t.amount.toFixed(2), 
+                  type: t.type,
+                  // Перетворюємо об'єкт Date на ISO рядок для зручності
+                  date: t.timestamp.toISOString(), 
+              }));
+              
+              const json = JSON.stringify(dataToExport, null, 2);
+              const blob = new Blob([json], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              
+              // Створюємо тимчасове посилання для завантаження
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `finance_tracker_export_${new Date().toISOString().slice(0, 10)}.json`;
+              document.body.appendChild(a);
+              a.click();
+              
+              // Очищення
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              setError("Дані успішно експортовано.");
           };
-
-          const isCloudEnabled = db !== null && userId !== 'CLOUD_DISABLED';
 
           return (
             <div className="min-h-screen bg-gray-100 p-4 sm:p-6 font-sans">
               <div className="max-w-xl mx-auto">
                 <header className="text-center mb-6">
-                  <h1 className="text-3xl font-bold text-gray-800 mb-1">Мій Фінансовий Трекер</h1>
-                  <div className="flex justify-center items-center space-x-4 mt-2">
-                      <p className="text-sm text-gray-500">
-                          ID користувача: <span className="font-mono text-xs p-1 bg-white rounded-md">{userId || 'Очікування...'}</span>
-                      </p>
-                      <button
-                          onClick={handleRefresh}
-                          className="flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800 p-1 rounded-lg transition duration-150"
-                          title="Примусово оновити сторінку та дані"
-                      >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m15.356 2H21v-5m-5.447 15.447L15 21" />
-                          </svg>
-                          Оновити
-                      </button>
-                  </div>
+                  <h1 className="text-3xl font-bold text-gray-800 mb-1">Мій Локальний Фінансовий Трекер</h1>
+                  <p className="text-sm text-indigo-600 font-medium">Дані зберігаються тільки на вашому пристрої.</p>
                 </header>
 
-                {/* Індикатор стану підключення */}
-                <div className={`p-3 mb-4 text-sm rounded-lg border 
-                    ${connectionStatus.includes('Підключено') || connectionStatus.includes('синхронізовано') ? 'bg-green-100 border-green-300 text-green-800' : 
-                      connectionStatus.includes('Помилка') || connectionStatus.includes('ВИМКНЕНО') ? 'bg-red-100 border-red-300 text-red-800' : 'bg-yellow-100 border-yellow-300 text-yellow-800'
-                    }`}
-                    role="status"
-                >
-                    <p className="font-semibold">Стан Підключення:</p>
-                    <p className="font-mono text-xs break-all whitespace-pre-wrap">{connectionStatus}</p>
-                </div>
-                
                 {error && (
                   <div className="p-4 mb-4 text-sm rounded-lg border bg-red-100 text-red-800 border-red-300" role="alert">
-                    <p className="font-semibold mb-1">Повідомлення про Помилку:</p>
+                    <p className="font-semibold mb-1">Повідомлення:</p>
                     <p className="font-mono text-xs break-all whitespace-pre-wrap">{error}</p>
                   </div>
                 )}
+                
+                {/* Кнопка Експорту та Повідомлення про Локальне Збереження */}
+                <div className="flex justify-between items-center mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-xl shadow-md">
+                    <div className="flex items-center text-sm text-yellow-800">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Локально збережено ({transactions.length})
+                    </div>
+                    <button
+                        onClick={handleExport}
+                        disabled={transactions.length === 0}
+                        className={`py-2 px-4 rounded-lg text-sm font-medium transition duration-150 transform hover:scale-[1.05] shadow-sm ${transactions.length === 0 ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                    >
+                        Експортувати (.json)
+                    </button>
+                </div>
+
 
                 {/* Картка загального балансу */}
                 <div className="bg-white shadow-xl rounded-2xl p-6 mb-8 border-t-4 border-indigo-500">
@@ -488,8 +376,8 @@
                     </div>
 
                     {/* Кнопка додавання */}
-                    <button type="submit" disabled={!isCloudEnabled} className={`w-full py-3 px-4 border border-transparent rounded-lg shadow-md text-base font-medium text-white transition duration-150 transform hover:scale-[1.01] ${!isCloudEnabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'}`}>
-                      {!isCloudEnabled ? 'Хмарне збереження ВИМКНЕНО' : 'Додати'}
+                    <button type="submit" className="w-full py-3 px-4 border border-transparent rounded-lg shadow-md text-base font-medium text-white transition duration-150 transform hover:scale-[1.01] bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                      Додати Транзакцію
                     </button>
                   </form>
                 </div>
@@ -549,7 +437,7 @@
                           <div className="flex-1 min-w-0 pr-4">
                             <p className="font-semibold text-gray-800 truncate">{t.description}</p>
                             <p className="text-xs text-gray-500 mt-0.5">
-                              {/* Перевіряємо, чи timestamp є коректним об'єктом Date */}
+                              {/* Відображаємо дату у читабельному форматі */}
                               {t.timestamp instanceof Date && !isNaN(t.timestamp) 
                                 ? t.timestamp.toLocaleDateString('uk-UA', { year: 'numeric', month: 'long', day: 'numeric' })
                                 : 'Невідома дата'}
@@ -564,8 +452,7 @@
                             {/* Кнопка видалення */}
                             <button
                               onClick={() => handleDelete(t.id)}
-                              disabled={!isCloudEnabled}
-                              className={`p-1 rounded-full transition duration-150 focus:outline-none focus:ring-2 focus:ring-red-500 ${!isCloudEnabled ? 'text-gray-300 cursor-not-allowed' : 'text-gray-400 hover:text-red-600'}`}
+                              className="p-1 rounded-full transition duration-150 focus:outline-none focus:ring-2 focus:ring-red-500 text-gray-400 hover:text-red-600"
                               aria-label="Видалити транзакцію"
                             >
                               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -583,24 +470,8 @@
           );
         };
         
-        // Перевіряємо, чи всі необхідні залежності були завантажені
-        if (window.firebaseDependencies) {
-            const root = ReactDOM.createRoot(document.getElementById('root'));
-            root.render(<App />);
-        } else {
-            console.error("Помилка: Не вдалося завантажити залежності Firebase.");
-            // Відображаємо резервне повідомлення в DOM, якщо React не може запуститися
-            document.getElementById('root').innerHTML = `
-                <div class="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-                    <div class="p-6 bg-white rounded-lg shadow-xl border-l-4 border-red-500">
-                        <h1 class="text-xl font-bold text-red-600">Критична Помилка</h1>
-                        <p class="text-gray-700 mt-2">Не вдалося завантажити необхідні файли Firebase SDK. Функція хмарного збереження недоступна.</p>
-                        <p class="text-sm text-gray-500 mt-1">Спробуйте оновити сторінку.</p>
-                    </div>
-                </div>
-            `;
-        }
-
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
 
         // --- ЛОГІКА РЕЄСТРАЦІЇ СЕРВІС-ВОРКЕРА (залишаємо для PWA) ---
         if ('serviceWorker' in navigator) {
