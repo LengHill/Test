@@ -1,21 +1,21 @@
 {
-name Мій Фінансовий Трекер PWA,
-short_name FinTracker,
-description Персональний додаток для обліку доходів та витрат. Працює офлайн.,
-start_url .index.html,
-display standalone,
-background_color #f3f4f6,
-theme_color #4F46E5,
-icons [
+"name": "Мій Фінансовий Трекер PWA",
+"short_name": "FinTracker",
+"description": "Персональний додаток для обліку доходів та витрат. Працює офлайн.",
+"start_url": "./index.html",
+"display": "standalone",
+"background_color": "#f3f4f6",
+"theme_color": "#4F46E5",
+"icons": [
 {
-src httpswww.google.comsearchq=httpsplacehold.co192x1924F46E5FFFFFF%3Ftext%3DF+,
-sizes 192x192,
-type imagepng
+"src": "https://www.google.com/search?q=https://placehold.co/192x192/4F46E5/FFFFFF%3Ftext%3DF+",
+"sizes": "192x192",
+"type": "image/png"
 },
 {
-src httpswww.google.comsearchq=httpsplacehold.co512x5124F46E5FFFFFF%3Ftext%3DF+,
-sizes 512x512,
-type imagepng
+"src": "https://www.google.com/search?q=https://placehold.co/512x512/4F46E5/FFFFFF%3Ftext%3DF+",
+"sizes": "512x512",
+"type": "image/png"
 }
 ]
 }
